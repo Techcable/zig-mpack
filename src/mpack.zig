@@ -321,22 +321,16 @@ pub const MpackReader = extern struct {
         return bytes;
     }
 
-    /// Parse the specified type using compile time reflection
+    /// Parse the specified primitive type using compile time reflection
     ///
     /// Types that can be parsed:
     /// 1. Primitives (Integers, Floats, Booleans)
-    /// 2. Strings and bytes
-    /// 3. Optional types
-    ///
-    /// NOTES:
-    /// An interpretation must be specified for "byte types".
-    /// Does `[]const u8` in the source mean we expect
-    pub fn expect_reflect(
+    /// 2. Optional types
+    pub fn expect_reflect_primitive(
         self: *MpackReader,
         comptime T: type,
         comptime ctx: ReflectParseContext,
     ) Error!T {
-        _ = ctx.allocator;
         const info = @typeInfo(T);
         switch (info) {
             .Void => {
@@ -388,37 +382,10 @@ pub const MpackReader = extern struct {
     }
 };
 pub const ReflectParseContext = struct {
-    allocator: ?Allocator = null,
-    /// Ignore extra fields when parsing structs
-    ///
-    /// If this is false, then extra fields are errors.
-    ignore_extra_fields: bool = true,
-    /// Require that strings are UTF8 encoded
-    ///
-    /// This implies an extra validation step (for strings)
-    require_utf8: bool = true,
     /// Require floating point types to be exact.
     ///
     /// This avoids loss of precision.
     strict_floating: bool = true,
-    /// The way to interpret byte slices.
-    ///
-    /// If this is null, then byte types are errors.
-    bytes_type: ?BytesType = null,
-};
-
-/// The way to interpret byte slices.
-///
-/// Zig has two meainings for `[]const u8`.
-/// 1: A byte array
-/// 2. A string array
-///
-/// There is also the special "anything" type
-/// which means that either type is permitted.
-pub const BytesType = enum {
-    bytes,
-    string,
-    anything,
 };
 
 pub const MType = enum(c.mpack_type_t) {
@@ -570,56 +537,56 @@ fn expect_primitive(reader: *MpackReader, expected: PrimitiveValue, reflect: boo
     switch (expected) {
         .U8 => |val| {
             if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect(u8, .{}));
+                try expectEqual(val, try reader.*.expect_reflect_primitive(u8, .{}));
             } else {
                 try expectEqual(val, try reader.*.expect_u8());
             }
         },
         .U32 => |val| {
             if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect(u32, .{}));
+                try expectEqual(val, try reader.*.expect_reflect_primitive(u32, .{}));
             } else {
                 try expectEqual(val, try reader.*.expect_u32());
             }
         },
         .U64 => |val| {
             if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect(u64, .{}));
+                try expectEqual(val, try reader.*.expect_reflect_primitive(u64, .{}));
             } else {
                 try expectEqual(val, try reader.*.expect_u64());
             }
         },
         .I32 => |val| {
             if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect(i32, .{}));
+                try expectEqual(val, try reader.*.expect_reflect_primitive(i32, .{}));
             } else {
                 try expectEqual(val, try reader.*.expect_i32());
             }
         },
         .I64 => |val| {
             if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect(i64, .{}));
+                try expectEqual(val, try reader.*.expect_reflect_primitive(i64, .{}));
             } else {
                 try expectEqual(val, try reader.*.expect_i64());
             }
         },
         .Bool => |val| {
             if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect(bool, .{}));
+                try expectEqual(val, try reader.*.expect_reflect_primitive(bool, .{}));
             } else {
                 try expectEqual(val, try reader.*.expect_bool());
             }
         },
         .Nil => {
             if (reflect) {
-                try reader.*.expect_reflect(void, .{});
+                try reader.*.expect_reflect_primitive(void, .{});
             } else {
                 try reader.*.expect_nil();
             }
         },
         .Double => |val| {
             if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect(f64, .{}));
+                try expectEqual(val, try reader.*.expect_reflect_primitive(f64, .{}));
             } else {
                 try expectEqual(val, try reader.*.expect_double_strict());
             }

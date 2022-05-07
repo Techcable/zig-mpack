@@ -481,6 +481,51 @@ pub const MTag = extern struct {
     pub inline fn is_nil(self: MTag) bool {
         return self.tag_type() == MType.nil;
     }
+
+    pub inline fn bool_value(self: MTag) ?bool {
+        if (self.tag_type() != MType.bool) return null;
+        return c.mpack_tag_bool_value(self.tag);
+    }
+
+    pub inline fn int_value(self: MTag) ?i64 {
+        if (self.tag_type() != MType.int) return null;
+        return c.mpack_tag_int_value(self.tag);
+    }
+
+    pub inline fn uint_value(self: MTag) ?u64 {
+        if (self.tag_type() != MType.uint) return null;
+        return c.mpack_tag_uint_value(self.tag);
+    }
+
+    pub inline fn float_value(self: MTag) ?f32 {
+        if (self.tag_type() != MType.float) return null;
+        return c.mpack_tag_float_value(self.tag);
+    }
+
+    pub inline fn double_value(self: MTag) ?f64 {
+        if (self.tag_type() != MType.double) return null;
+        return c.mpack_tag_double_value(self.tag);
+    }
+
+    pub inline fn array_count(self: MTag) ?u32 {
+        if (self.tag_type() != MType.array) return null;
+        return c.mpack_tag_array_count(self.tag);
+    }
+
+    pub inline fn map_count(self: MTag) ?u32 {
+        if (self.tag_type() != MType.map) return null;
+        return c.mpack_tag_map_count(self.tag);
+    }
+
+    pub inline fn str_length(self: MTag) ?u32 {
+        if (self.tag_type() != MType.str) return null;
+        return c.mpack_tag_str_length(self.tag);
+    }
+
+    pub inline fn bin_length(self: MTag) ?u32 {
+        if (self.tag_type() != MType.bin) return null;
+        return c.mpack_tag_bin_length(self.tag);
+    }
 };
 
 pub const TypeError = error{

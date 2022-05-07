@@ -391,6 +391,7 @@ pub const ReflectParseContext = struct {
 pub const MType = enum(c.mpack_type_t) {
     missing = c.mpack_type_missing,
     nil = c.mpack_type_nil,
+    bool = c.mpack_type_bool,
     int = c.mpack_type_int,
     uint = c.mpack_type_uint,
     float = c.mpack_type_float,
@@ -399,7 +400,8 @@ pub const MType = enum(c.mpack_type_t) {
     bin = c.mpack_type_bin,
     array = c.mpack_type_array,
     map = c.mpack_type_map,
-    ext = c.mpack_type_ext,
+    // TODO: Compile with this enabled???
+    // ext = c.mpack_type_ext,
 
     pub fn to_string(self: MType) [*:0]const u8 {
         return c.mpack_type_to_string(@as(c.mpack_type_t, self));
@@ -410,56 +412,68 @@ pub const MTag = extern struct {
     tag: c.mpack_tag_t,
 
     pub inline fn tag_type(self: MTag) MType {
-        return c.mpack_tag_type(&self.taga);
+        return @intToEnum(MType, c.mpack_tag_type(self.c_ptr()));
     }
 
     pub inline fn is_nil(self: MTag) bool {
         return self.tag_type() == MType.nil;
     }
 
-    pub inline fn bool_value(self: MTag) ?bool {
-        if (self.tag_type() != MType.bool) return null;
-        return c.mpack_tag_bool_value(self.tag);
+    pub inline fn require_type(self: MTag, expected_type: MType) TypeError!void {
+        if (self.tag_type() != expected_type) {
+            return TypeError.MsgpackErrorType;
+        }
     }
 
-    pub inline fn int_value(self: MTag) ?i64 {
-        if (self.tag_type() != MType.int) return null;
-        return c.mpack_tag_int_value(self.tag);
+    inline fn c_ptr(self: *const MTag) *c.mpack_tag_t {
+        // casts aren't allowed to discard qualifiers.
+        // I see now way to do this directly, so we do this work-around
+        return @intToPtr(*c.mpack_tag_t, @ptrToInt(&self.tag));
     }
 
-    pub inline fn uint_value(self: MTag) ?u64 {
-        if (self.tag_type() != MType.uint) return null;
-        return c.mpack_tag_uint_value(self.tag);
+    pub inline fn bool_value(self: MTag) TypeError!bool {
+        try self.require_type(.bool);
+        return c.mpack_tag_bool_value(self.c_ptr());
     }
 
-    pub inline fn float_value(self: MTag) ?f32 {
-        if (self.tag_type() != MType.float) return null;
-        return c.mpack_tag_float_value(self.tag);
+    pub inline fn int_value(self: MTag) TypeError!i64 {
+        try self.require_type(.int);
+        return c.mpack_tag_int_value(self.c_ptr());
     }
 
-    pub inline fn double_value(self: MTag) ?f64 {
-        if (self.tag_type() != MType.double) return null;
-        return c.mpack_tag_double_value(self.tag);
+    pub inline fn uint_value(self: MTag) TypeError!u64 {
+        try self.require_type(.uint);
+        return c.mpack_tag_uint_value(self.c_ptr());
     }
 
-    pub inline fn array_count(self: MTag) ?u32 {
-        if (self.tag_type() != MType.array) return null;
-        return c.mpack_tag_array_count(self.tag);
+    pub inline fn float_value(self: MTag) TypeError!f32 {
+        try self.require_type(.float);
+        return c.mpack_tag_float_value(self.c_ptr());
     }
 
-    pub inline fn map_count(self: MTag) ?u32 {
-        if (self.tag_type() != MType.map) return null;
-        return c.mpack_tag_map_count(self.tag);
+    pub inline fn double_value(self: MTag) TypeError!f64 {
+        try self.require_type(.double);
+        return c.mpack_tag_double_value(self.c_ptr());
     }
 
-    pub inline fn str_length(self: MTag) ?u32 {
-        if (self.tag_type() != MType.str) return null;
-        return c.mpack_tag_str_length(self.tag);
+    pub inline fn array_count(self: MTag) TypeError!u32 {
+        try self.require_type(.array);
+        return c.mpack_tag_array_count(self.c_ptr());
     }
 
-    pub inline fn bin_length(self: MTag) ?u32 {
-        if (self.tag_type() != MType.bin) return null;
-        return c.mpack_tag_bin_length(self.tag);
+    pub inline fn map_count(self: MTag) TypeError!u32 {
+        try self.require_type(.map);
+        return c.mpack_tag_map_count(self.c_ptr());
+    }
+
+    pub inline fn str_length(self: MTag) TypeError!u32 {
+        try self.require_type(.str);
+        return c.mpack_tag_str_length(self.c_ptr());
+    }
+
+    pub inline fn bin_length(self: MTag) TypeError!u32 {
+        try self.require_type(.bin);
+        return c.mpack_tag_bin_length(self.c_ptr());
     }
 };
 
@@ -532,63 +546,69 @@ const TestValue = struct {
     bytes: []const u8,
     value: PrimitiveValue,
 };
-fn expect_primitive(reader: *MpackReader, expected: PrimitiveValue, reflect: bool) !void {
+const PrimitiveReadMode = enum {
+    reflect,
+    expect,
+    tag,
+};
+fn expect_primitive(reader: *MpackReader, expected: PrimitiveValue, mode: PrimitiveReadMode) !void {
     const expectEqual = std.testing.expectEqual;
+    const tag = if (mode == .tag) (try reader.*.read_tag()) else null;
     switch (expected) {
         .U8 => |val| {
-            if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect_primitive(u8, .{}));
-            } else {
-                try expectEqual(val, try reader.*.expect_u8());
+            switch (mode) {
+                .reflect => try expectEqual(val, try reader.*.expect_reflect_primitive(u8, .{})),
+                .expect => try expectEqual(val, try reader.*.expect_u8()),
+                .tag => try expectEqual(val, @intCast(u8, try tag.?.uint_value())),
             }
         },
         .U32 => |val| {
-            if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect_primitive(u32, .{}));
-            } else {
-                try expectEqual(val, try reader.*.expect_u32());
+            switch (mode) {
+                .reflect => try expectEqual(val, try reader.*.expect_reflect_primitive(u32, .{})),
+                .expect => try expectEqual(val, try reader.*.expect_u32()),
+                .tag => try expectEqual(val, @intCast(u32, try tag.?.uint_value())),
             }
         },
         .U64 => |val| {
-            if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect_primitive(u64, .{}));
-            } else {
-                try expectEqual(val, try reader.*.expect_u64());
+            switch (mode) {
+                .reflect => try expectEqual(val, try reader.*.expect_reflect_primitive(u64, .{})),
+                .expect => try expectEqual(val, try reader.*.expect_u64()),
+                .tag => try expectEqual(val, @intCast(u64, try tag.?.uint_value())),
             }
         },
         .I32 => |val| {
-            if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect_primitive(i32, .{}));
-            } else {
-                try expectEqual(val, try reader.*.expect_i32());
+            switch (mode) {
+                .reflect => try expectEqual(val, try reader.*.expect_reflect_primitive(i32, .{})),
+                .expect => try expectEqual(val, try reader.*.expect_i32()),
+                .tag => try expectEqual(val, @intCast(i32, try tag.?.int_value())),
             }
         },
         .I64 => |val| {
-            if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect_primitive(i64, .{}));
-            } else {
-                try expectEqual(val, try reader.*.expect_i64());
+            switch (mode) {
+                .reflect => try expectEqual(val, try reader.*.expect_reflect_primitive(i64, .{})),
+                .expect => try expectEqual(val, try reader.*.expect_i64()),
+                .tag => try expectEqual(val, @intCast(i64, try tag.?.int_value())),
             }
         },
         .Bool => |val| {
-            if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect_primitive(bool, .{}));
-            } else {
-                try expectEqual(val, try reader.*.expect_bool());
+            switch (mode) {
+                .reflect => try expectEqual(val, try reader.*.expect_reflect_primitive(bool, .{})),
+                .expect => try expectEqual(val, try reader.*.expect_bool()),
+                .tag => try expectEqual(val, try tag.?.bool_value()),
             }
         },
         .Nil => {
-            if (reflect) {
-                try reader.*.expect_reflect_primitive(void, .{});
-            } else {
-                try reader.*.expect_nil();
+            switch (mode) {
+                .reflect => try reader.*.expect_reflect_primitive(void, .{}),
+                .expect => try reader.*.expect_nil(),
+                .tag => try std.testing.expect(tag.?.is_nil()),
             }
         },
         .Double => |val| {
-            if (reflect) {
-                try expectEqual(val, try reader.*.expect_reflect_primitive(f64, .{}));
-            } else {
-                try expectEqual(val, try reader.*.expect_double_strict());
+            switch (mode) {
+                .reflect => try expectEqual(val, try reader.*.expect_reflect_primitive(f64, .{})),
+                .expect => try expectEqual(val, try reader.*.expect_double_strict()),
+                .tag => try expectEqual(val, try tag.?.double_value()),
             }
         },
     }
@@ -628,11 +648,11 @@ test "mpack primitives" {
         },
     };
     for (expected_values) |value| {
-        const should_reflect = [2]bool{ false, true };
-        for (should_reflect) |reflect| {
+        const modes = [2]PrimitiveReadMode{ .reflect, .expect };
+        for (modes) |mode| {
             var reader = MpackReader.init_data(value.bytes);
             defer reader.destroy() catch unreachable;
-            try expect_primitive(&reader, value.value, reflect);
+            try expect_primitive(&reader, value.value, mode);
         }
     }
 }

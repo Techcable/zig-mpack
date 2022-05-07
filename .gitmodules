@@ -1,0 +1,3 @@
+[submodule "deps/mpack"]
+	path = deps/mpack
+	url = https://github.com/ludocode/mpack.git

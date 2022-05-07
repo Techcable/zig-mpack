@@ -160,6 +160,32 @@ pub const MpackReader = extern struct {
         return val;
     }
 
+    /// Reads a 64-bit unsigned integer, ensuring that it falls within the given range.
+    ///
+    /// The underlying type may be an integer
+    /// type of any size and signedness, as long as the value
+    /// can be represented in a 64-bit unsigned int.
+    ///
+    /// Both values are inclusive
+    pub inline fn expect_u64_range(self: *MpackReader, min: u64, max: u64) Error!u64 {
+        const val = c.mpack_expect_u64_range(&self.reader, min, max);
+        try self.error_info().check_okay();
+        return val;
+    }
+
+    /// Reads a 64-bit signed integer, ensuring that it falls within the given range.
+    ///
+    /// The underlying type may be an integer
+    /// type of any size and signedness, as long as the value
+    /// can be represented in a 64-bit signed int.
+    ///
+    /// Both values are inclusive
+    pub inline fn expect_i64_range(self: *MpackReader, min: i64, max: i64) Error!i64 {
+        const val = c.mpack_expect_i64_range(&self.reader, min, max);
+        try self.error_info().check_okay();
+        return val;
+    }
+
     /// Reads a number, returning the value as a double.
     ///
     /// The underlying value can be an integer, float or double;
@@ -272,6 +298,114 @@ pub const MpackReader = extern struct {
         }
         return bytes;
     }
+
+    /// Parse the specified type using compile time reflection
+    ///
+    /// Types that can be parsed:
+    /// 1. Primitives (Integers, Floats, Booleans)
+    /// 2. Strings and bytes
+    /// 3. Optional types
+    /// 3. struct
+    /// 4. Arrays
+    /// 5. Enums
+    ///
+    /// NOTES:
+    /// An interpretation must be specified for "byte types".
+    /// Does `[]const u8` in the source mean we expect
+    pub fn expect_reflect(
+        self: *MpackReader,
+        comptime T: type,
+        comptime ctx: ReflectParseContext,
+    ) Error!T {
+        _ = ctx.allocator;
+        const info = @typeInfo(T);
+        switch (info) {
+            .Void => {
+                try self.expect_nil();
+                return;
+            },
+            .Bool => {
+                return @as(T, try self.expect_bool());
+            },
+            .Int => |i| {
+                assert(i.bits <= 64);
+                const effective_bits = switch (i.signedness) {
+                    .signed => i.bits - 1,
+                    .unsigned => i.bits,
+                };
+                const max: comptime_int = (1 << effective_bits) - 1;
+                return switch (i.signedness) {
+                    .signed => {
+                        const min: comptime_int = -(1 << effective_bits);
+                        return @intCast(T, try self.expect_i64_range(@intCast(i64, min), @intCast(i64, max)));
+                    },
+                    .unsigned => {
+                        return @intCast(T, try self.expect_u64_range(@intCast(u64, 0), @intCast(u64, max)));
+                    },
+                };
+            },
+            // invalid type
+            else => unreachable,
+        }
+    }
+    /// This is a special case of `expect_reflect`,
+    /// that only supports structs.
+    ///
+    /// It is special cased because it is often
+    /// useful to mix struct reflection with otherwise
+    /// hand-coded deserialization.
+    pub fn parse_reflect_struct(
+        _: *MpackReader,
+        comptime T: type,
+        comptime _: ReflectParseContext,
+        comptime _: StructSerStyle,
+    ) Error!T {}
+};
+pub const ReflectParseContext = struct {
+    allocator: ?Allocator = null,
+    /// Ignore extra fields when parsing structs
+    ///
+    /// If this is false, then extra fields are errors.
+    ignore_extra_fields: bool = true,
+    struct_require_style: ?StructSerStyle = null,
+    /// Requires that enums are serialized in the specified style
+    ///
+    /// If this is null, then either style can be used.
+    enum_require_style: ?EnumSerStyle = null,
+    /// Require that strings are UTF8 encoded
+    ///
+    /// This implies an extra validation step (for strings)
+    require_utf8: bool = true,
+    /// The way to interpret byte slices.
+    ///
+    /// If this is null, then byte types are errors.
+    bytes_type: ?BytesType = null,
+};
+
+/// The "style" for struct serialization
+pub const StructSerStyle = enum {
+    map,
+    array,
+};
+
+/// The style for enum serializtion
+pub const EnumSerStyle = enum {
+    names,
+    ordinals,
+};
+
+/// The way to interpret byte slices.
+///
+/// Zig has two meainings for `[]const u8`.
+/// 1: A byte array
+/// 2. A string array
+///
+/// There is also the special "anything" type
+/// which means that either type is permitted.
+pub const BytesType = enum {
+    bytes,
+    string,
+    anything,
 };
 
 pub const MType = enum(c.mpack_type_t) {
@@ -372,29 +506,57 @@ const TestValue = struct {
     bytes: []const u8,
     value: PrimitiveValue,
 };
-fn expect_primitive(reader: *MpackReader, expected: PrimitiveValue) !void {
+fn expect_primitive(reader: *MpackReader, expected: PrimitiveValue, reflect: bool) !void {
     const expectEqual = std.testing.expectEqual;
     switch (expected) {
         .U8 => |val| {
-            try expectEqual(val, try reader.*.expect_u8());
+            if (reflect) {
+                try expectEqual(val, try reader.*.expect_reflect(u8, .{}));
+            } else {
+                try expectEqual(val, try reader.*.expect_u8());
+            }
         },
         .U32 => |val| {
-            try expectEqual(val, try reader.*.expect_u32());
+            if (reflect) {
+                try expectEqual(val, try reader.*.expect_reflect(u32, .{}));
+            } else {
+                try expectEqual(val, try reader.*.expect_u32());
+            }
         },
         .U64 => |val| {
-            try expectEqual(val, try reader.*.expect_u64());
+            if (reflect) {
+                try expectEqual(val, try reader.*.expect_reflect(u64, .{}));
+            } else {
+                try expectEqual(val, try reader.*.expect_u64());
+            }
         },
         .I32 => |val| {
-            try expectEqual(val, try reader.*.expect_i32());
+            if (reflect) {
+                try expectEqual(val, try reader.*.expect_reflect(i32, .{}));
+            } else {
+                try expectEqual(val, try reader.*.expect_i32());
+            }
         },
         .I64 => |val| {
-            try expectEqual(val, try reader.*.expect_i64());
+            if (reflect) {
+                try expectEqual(val, try reader.*.expect_reflect(i64, .{}));
+            } else {
+                try expectEqual(val, try reader.*.expect_i64());
+            }
         },
         .Bool => |val| {
-            try expectEqual(val, try reader.*.expect_bool());
+            if (reflect) {
+                try expectEqual(val, try reader.*.expect_reflect(bool, .{}));
+            } else {
+                try expectEqual(val, try reader.*.expect_bool());
+            }
         },
         .Nil => {
-            try reader.*.expect_nil();
+            if (reflect) {
+                try reader.*.expect_reflect(void, .{});
+            } else {
+                try reader.*.expect_nil();
+            }
         },
     }
 }
@@ -424,9 +586,12 @@ test "mpack primitives" {
         .{ .bytes = "\xc2", .value = PrimitiveValue{ .Bool = false } },
     };
     for (expected_values) |value| {
-        var reader = MpackReader.init_data(value.bytes);
-        defer reader.destroy() catch unreachable;
-        try expect_primitive(&reader, value.value);
+        const should_reflect = [2]bool{ false, true };
+        for (should_reflect) |reflect| {
+            var reader = MpackReader.init_data(value.bytes);
+            defer reader.destroy() catch unreachable;
+            try expect_primitive(&reader, value.value, reflect);
+        }
     }
 }
 

@@ -8,8 +8,7 @@ fn dep_root() []const u8 {
     return sdk_root() ++ "/deps/mpack";
 }
 
-pub const MpackOptions = struct {
-};
+pub const MpackOptions = struct {};
 
 pub fn setup_msgpack(step: *std.build.LibExeObjStep, _: MpackOptions) void {
     step.addIncludePath(dep_root() ++ "/src/mpack");

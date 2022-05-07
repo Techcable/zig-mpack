@@ -1,6 +1,8 @@
 const std = @import("std");
 const c = @import("c.zig");
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const AllocError = Allocator.Error;
 
 pub const MpackReader = extern struct {
     reader: c.mpack_reader_t,
@@ -91,6 +93,32 @@ pub const MpackReader = extern struct {
     pub inline fn destroy(self: *MpackReader) Error!void {
         var err = c.mpack_reader_destroy(&self.reader);
         try (ErrorInfo{ .err = err }).check_okay();
+    }
+
+    /// Reads bytes from a string, binary blob or extension object,
+    /// copying them into the given buffer.
+    ///
+    /// A str, bin or ext must have been opened by a call to read_tag()
+    /// which gave one of these types.
+    ///
+    /// This can be called multiple times for a single str, bin or ext
+    /// to read the data in chunks.
+    /// The total data read must add up to the size of the object.
+    ///
+    /// If an error occurs, the buffer contents are undefined.
+    pub fn read_bytes_into(self: *MpackReader, dest: []u8) Error!void {
+        if (dest.len != 0) {
+            c.mpack_read_bytes(&self.reader, dest.ptr, dest.len);
+            try self.error_info().check_okay();
+        }
+    }
+
+    /// Reads bytes from a string, binary blob or extension object,
+    /// allocating storage for them and returning the allocated pointer.
+    pub fn read_bytes_alloc(self: *MpackReader, alloc: Allocator, size: u32) Error![]u8 {
+        var dest = try alloc.alloc(u8, @intCast(usize, size));
+        try self.read_bytes_into(dest);
+        return dest;
     }
 
     //
@@ -207,6 +235,43 @@ pub const MpackReader = extern struct {
         c.mpack_expect_array_match(&self.reader, count);
         try self.error_info().check_okay();
     }
+
+    /// Reads the start of a string, returning its size in bytes.
+    ///
+    /// The bytes follow and must be read separately.
+    /// done_str() must be called once all bytes have been read.
+    ///
+    /// NUL bytes are allowed in the string, and no encoding checks are done.
+    pub fn expect_str_start(self: *MpackReader) Error!u32 {
+        const val = c.mpack_expect_str(&self.reader);
+        try self.error_info().check_okay();
+        return val;
+    }
+
+    /// Reads a string, allocating it in the specified allocator.
+    ///
+    /// NULL bytes are allowed in the string,
+    /// and no encoding checks are done (it may not be valid UTF8).
+    ///
+    /// See also `expect_utf8_alloc`, which requires the data is UTF8 encoded
+    pub fn expect_str_relaxed_alloc(self: *MpackReader, alloc: Allocator) Error![]const u8 {
+        const size = try self.expect_str_start();
+        const res = try self.read_bytes_alloc(alloc, size);
+        try self.done_str();
+        return res;
+    }
+
+    /// Reads a UTF8 encoded string,
+    ///
+    /// Null bytes are allowed in the string.
+    /// However, it must be valid UTF8
+    pub fn expect_utf8_alloc(self: *MpackReader, alloc: Allocator) Error![]const u8 {
+        const bytes = try self.expect_str_relaxed_alloc(alloc);
+        if (!std.unicode.utf8ValidateSlice(bytes)) {
+            return Error.MsgpackErrorInvalid;
+        }
+        return bytes;
+    }
 };
 
 pub const MType = enum(c.mpack_type_t) {
@@ -262,7 +327,7 @@ pub const Error = error{
     MsgpackErrorIO,
     /// While reading msgpack, an allocation failure occurred
     MsgpackErrorMemory,
-} || TypeError;
+} || TypeError || AllocError;
 
 pub const ErrorInfo = extern struct {
     err: c.mpack_error_t,
@@ -362,5 +427,37 @@ test "mpack primitives" {
         var reader = MpackReader.init_data(value.bytes);
         defer reader.destroy() catch unreachable;
         try expect_primitive(&reader, value.value);
+    }
+}
+
+test "mpack strings" {
+    const TestString = struct {
+        encoded: []const u8,
+        text: []const u8,
+        utf8: bool = true,
+    };
+    const long_phrases = [_][]const u8{
+        "For Faith is the Substance of the Things I have hoped for, the evidence for the things not seen.",
+        "Let it go! Let it go! Can't hold it back anymore.",
+    };
+    const test_strings = [_]TestString{
+        .{ .encoded = "\xa0", .text = "" },
+        .{ .encoded = "\xa3foo", .text = "foo" },
+        .{ .encoded = "\xd9`" ++ long_phrases[0], .text = long_phrases[0] },
+        .{ .encoded = "\xd91" ++ long_phrases[1], .text = long_phrases[1] },
+    };
+    const alloc = std.testing.allocator;
+    for (test_strings) |value| {
+        var reader = MpackReader.init_data(value.encoded);
+        defer reader.destroy() catch unreachable;
+        var actual_text = blk: {
+            if (value.utf8) {
+                break :blk try reader.expect_str_relaxed_alloc(alloc);
+            } else {
+                break :blk try reader.expect_utf8_alloc(alloc);
+            }
+        };
+        try std.testing.expectEqualStrings(actual_text, value.text);
+        defer alloc.free(actual_text);
     }
 }

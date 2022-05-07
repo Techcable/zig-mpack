@@ -327,9 +327,6 @@ pub const MpackReader = extern struct {
     /// 1. Primitives (Integers, Floats, Booleans)
     /// 2. Strings and bytes
     /// 3. Optional types
-    /// 3. struct
-    /// 4. Arrays
-    /// 5. Enums
     ///
     /// NOTES:
     /// An interpretation must be specified for "byte types".
@@ -389,18 +386,6 @@ pub const MpackReader = extern struct {
             else => unreachable,
         }
     }
-    /// This is a special case of `expect_reflect`,
-    /// that only supports structs.
-    ///
-    /// It is special cased because it is often
-    /// useful to mix struct reflection with otherwise
-    /// hand-coded deserialization.
-    pub fn parse_reflect_struct(
-        _: *MpackReader,
-        comptime T: type,
-        comptime _: ReflectParseContext,
-        comptime _: StructSerStyle,
-    ) Error!T {}
 };
 pub const ReflectParseContext = struct {
     allocator: ?Allocator = null,
@@ -408,11 +393,6 @@ pub const ReflectParseContext = struct {
     ///
     /// If this is false, then extra fields are errors.
     ignore_extra_fields: bool = true,
-    struct_require_style: ?StructSerStyle = null,
-    /// Requires that enums are serialized in the specified style
-    ///
-    /// If this is null, then either style can be used.
-    enum_require_style: ?EnumSerStyle = null,
     /// Require that strings are UTF8 encoded
     ///
     /// This implies an extra validation step (for strings)
@@ -425,18 +405,6 @@ pub const ReflectParseContext = struct {
     ///
     /// If this is null, then byte types are errors.
     bytes_type: ?BytesType = null,
-};
-
-/// The "style" for struct serialization
-pub const StructSerStyle = enum {
-    map,
-    array,
-};
-
-/// The style for enum serializtion
-pub const EnumSerStyle = enum {
-    names,
-    ordinals,
 };
 
 /// The way to interpret byte slices.

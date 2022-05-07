@@ -385,67 +385,22 @@ pub const MpackReader = extern struct {
                     else => unreachable,
                 }
             },
-            .Struct => {
-                const tag = try self.read_tag();
-                const value = try self.parse_reflect_struct(T, ctx, tag);
-                switch (tag.tag_type()) {
-                    .map => {
-                        try self.done_map(); 
-                    },
-                    .array => {
-                        try self.done_array();
-                    },
-                    else => {
-                        unreachable // parse should've handled this
-                    },
-                }
-            },
             // invalid type
             else => unreachable,
         }
     }
     /// This is a special case of `expect_reflect`,
     /// that only supports structs.
-    /// 
-    /// Futhermore this doesn't read
-    /// the initial tag or call "finished".
-    /// It directly deserializes the values of the .
     ///
     /// It is special cased because it is often
     /// useful to mix struct reflection with otherwise
     /// hand-coded deserialization.
-    ///
-    /// This means it can be used to parse in the middle of an existing array/map.
-    /// This can be useful for "flattening" structs.
-    pub fn expect_reflect_struct_dict(
-        self: *MpackReader,
+    pub fn parse_reflect_struct(
+        _: *MpackReader,
         comptime T: type,
-        comptime ctx: ReflectParseContext,
-        tag: MTag
-    ) Error!T {
-        const info = switch (@typeInfo(T)) {
-            .Struct => |s| s,
-            else => unreachable
-        };
-        switch (tag.tag_type()) {
-            .array => {
-                const len = tag.array_count() orelse unreachable;
-                if (len < info.fields.len) {
-                    return Error.MsgpackErrorMissingField;
-                } else if (len > info.fields.len && !ctx.ignore_extra_fields) {
-                    return Error.MsgpackErrorInvalid;
-                }
-                assert(len >= info.fields.len);
-                
-            },
-            .map => {
-                const len = tag.map_count() orelse unreachable;
-            },
-            else => {
-                return Error.MsgpackErrorInvalid;
-            }
-        }
-    }
+        comptime _: ReflectParseContext,
+        comptime _: StructSerStyle,
+    ) Error!T {}
 };
 pub const ReflectParseContext = struct {
     allocator: ?Allocator = null,
@@ -596,8 +551,6 @@ pub const Error = error{
     MsgpackErrorIO,
     /// While reading msgpack, an allocation failure occurred
     MsgpackErrorMemory,
-    /// An missing field was encountered while deserializing a struct
-    MsgpackErrorMissingField,
 } || TypeError || AllocError;
 
 pub const ErrorInfo = extern struct {

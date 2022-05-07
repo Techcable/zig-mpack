@@ -209,6 +209,28 @@ pub const MpackReader = extern struct {
         return val;
     }
 
+    /// Reads a float.
+    ///
+    /// The underlying value can be an integer, float or double;
+    /// the value is converted to a float.
+    ///
+    /// Loss of precision can occur.
+    pub inline fn expect_float(self: *MpackReader) Error!f32 {
+        const val = c.mpack_expect_float(&self.reader);
+        try self.error_info().check_okay();
+        return val;
+    }
+
+    /// Reads a float.
+    ///
+    /// The underlying value must be a float, not a double or an integer.
+    /// This ensures no loss of precision can occur.
+    pub inline fn expect_float_strict(self: *MpackReader) Error!f32 {
+        const val = c.mpack_expect_float_strict(&self.reader);
+        try self.error_info().check_okay();
+        return val;
+    }
+
     /// Reads a nil.
     pub inline fn expect_nil(self: *MpackReader) Error!void {
         c.mpack_expect_nil(&self.reader);
@@ -344,6 +366,25 @@ pub const MpackReader = extern struct {
                     },
                 };
             },
+            .Float => |i| {
+                switch (i.bits) {
+                    32 => {
+                        if (ctx.strict_floating) {
+                            return try self.*.expect_float_strict();
+                        } else {
+                            return try self.*.expect_float();
+                        }
+                    },
+                    64 => {
+                        if (ctx.strict_floating) {
+                            return try self.*.expect_double_strict();
+                        } else {
+                            return try self.*.expect_double();
+                        }
+                    },
+                    else => unreachable,
+                }
+            },
             // invalid type
             else => unreachable,
         }
@@ -376,6 +417,10 @@ pub const ReflectParseContext = struct {
     ///
     /// This implies an extra validation step (for strings)
     require_utf8: bool = true,
+    /// Require floating point types to be exact.
+    ///
+    /// This avoids loss of precision.
+    strict_floating: bool = true,
     /// The way to interpret byte slices.
     ///
     /// If this is null, then byte types are errors.
@@ -501,6 +546,7 @@ const PrimitiveValue = union(enum) {
     I64: i64,
     Bool: bool,
     Nil: void,
+    Double: f64,
 };
 const TestValue = struct {
     bytes: []const u8,
@@ -558,6 +604,13 @@ fn expect_primitive(reader: *MpackReader, expected: PrimitiveValue, reflect: boo
                 try reader.*.expect_nil();
             }
         },
+        .Double => |val| {
+            if (reflect) {
+                try expectEqual(val, try reader.*.expect_reflect(f64, .{}));
+            } else {
+                try expectEqual(val, try reader.*.expect_double_strict());
+            }
+        },
     }
 }
 
@@ -584,6 +637,15 @@ test "mpack primitives" {
         .{ .bytes = "\xc0", .value = PrimitiveValue{ .Nil = {} } },
         .{ .bytes = "\xc3", .value = PrimitiveValue{ .Bool = true } },
         .{ .bytes = "\xc2", .value = PrimitiveValue{ .Bool = false } },
+        // doubles
+        .{
+            .bytes = "\xcb@\x0c\x00\x00\x00\x00\x00\x00",
+            .value = PrimitiveValue{ .Double = 3.5 },
+        },
+        .{
+            .bytes = "\xcb@\t!\xfbTD-\x18",
+            .value = PrimitiveValue{ .Double = std.math.pi },
+        },
     };
     for (expected_values) |value| {
         const should_reflect = [2]bool{ false, true };

@@ -492,6 +492,72 @@ pub const MTag = extern struct {
         return @intToPtr(*c.mpack_tag_t, @ptrToInt(&self.tag));
     }
 
+    //
+    // construct
+    //
+
+    /// Generates a nil tag.
+    pub inline fn make_nil() MTag {
+        return .{ .tag = c.mpack_tag_make_nil() };
+    }
+
+    /// Generates a bool tag.
+    pub inline fn make_bool(val: bool) MTag {
+        return .{ .tag = c.mpack_tag_make_bool(val) };
+    }
+
+    /// Generates a signed int tag.
+    pub inline fn make_int(val: i64) MTag {
+        return .{ .tag = c.mpack_tag_make_int(val) };
+    }
+
+    /// Generates an unsigned int tag.
+    pub inline fn make_uint(val: u64) MTag {
+        return .{ .tag = c.mpack_tag_make_uint(val) };
+    }
+
+    /// Generates a float tag.
+    pub inline fn make_float(val: f32) MTag {
+        return .{ .tag = c.mpack_tag_make_float(val) };
+    }
+
+    /// Generates a float tag.
+    pub inline fn make_double(val: f64) MTag {
+        return .{ .tag = c.mpack_tag_make_double(val) };
+    }
+
+    /// Generates an array tag.
+    ///
+    /// This includes only the length, not the values.
+    pub inline fn make_array(count: u32) MTag {
+        return .{ .tag = c.mpack_tag_make_array(val) };
+    }
+
+    /// Generates a map tag.
+    ///
+    /// This includes only the length, not the values.
+    pub inline fn make_map(count: u32) MTag {
+        return .{ .tag = c.mpack_tag_make_map(val) };
+    }
+
+    /// Generates a string tag.
+    ///
+    /// This includes only the length, not the values.
+    pub inline fn make_str(count: u32) MTag {
+        return .{ .tag = c.mpack_tag_make_str(val) };
+    }
+
+    /// Generates a bin tag.
+    ///
+    /// This includes only the length, not the values.
+    pub inline fn make_bin(count: u32) MTag {
+        return .{ .tag = c.mpack_tag_make_bin(val) };
+    }
+
+    //
+    // extract
+    //
+
     pub inline fn bool_value(self: MTag) TypeError!bool {
         try self.require_type(.bool);
         return c.mpack_tag_bool_value(self.c_ptr());

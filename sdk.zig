@@ -11,7 +11,7 @@ fn dep_root() []const u8 {
 pub const MpackOptions = struct {};
 
 pub fn setup_msgpack(step: *std.build.LibExeObjStep, _: MpackOptions) void {
-    step.addPackage(.{ .name = "zig-msgpack", .path = std.build.FileSource{.path = sdk_root() ++ "/src/mpack.zig"} });
+    step.addPackage(.{ .name = "zig-msgpack", .path = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" } });
     step.addIncludePath(dep_root() ++ "/src/mpack");
     // Compile mpack library
     const mpack_parts = [_][]const u8{ "common", "expect", "node", "platform", "reader", "writer" };

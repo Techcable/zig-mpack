@@ -389,7 +389,7 @@ pub const MpackReader = extern struct {
     }
 
     /// Expects a string matching one of the enum names.
-    /// 
+    ///
     /// Returns the corresponding enum value.
     ///
     /// If the value does not match any of the given strings,

@@ -24,7 +24,7 @@ pub const MpackReader = extern struct {
     /// Parses the next MessagePack object header
     /// (an MPack tag) without advancing the reader.
     pub fn peek_tag(self: *MpackReader) Error!MTag {
-        const tag = c.mpack_peek_tag(&self.reader);
+        const tag = MTag{ .tag = c.mpack_peek_tag(&self.reader) };
         if (tag.is_nil()) {
             try self.error_info().check_okay();
         } else {
@@ -41,12 +41,12 @@ pub const MpackReader = extern struct {
     /// to get the contained data, and the corresponding done
     /// function must be called when done.
     pub fn read_tag(self: *MpackReader) Error!MTag {
-        const tag = c.mpack_read_tag(&self.reader);
+        const tag = MTag{ .tag = c.mpack_read_tag(&self.reader) };
         if (tag.is_nil()) {
             try self.error_info().check_okay();
         } else {
             // should have returned nil if error
-            assert(self.error_info().is_okay());
+            self.error_info().check_okay() catch unreachable;
         }
         return tag;
     }
@@ -111,6 +111,13 @@ pub const MpackReader = extern struct {
             c.mpack_read_bytes(&self.reader, dest.ptr, dest.len);
             try self.error_info().check_okay();
         }
+    }
+
+    /// Skips bytes from the underlying stream.
+    ///
+    /// This function does not check for erorrs.
+    pub fn skip_bytes(self: *MpackReader, count: usize) void {
+        c.mpack_skip_bytes(&self.reader, count);
     }
 
     /// Reads bytes from a string, binary blob or extension object,
@@ -380,6 +387,60 @@ pub const MpackReader = extern struct {
             else => unreachable,
         }
     }
+
+    /// Expects a string matching one of the enum names.
+    /// 
+    /// Returns the corresponding enum value.
+    ///
+    /// If the value does not match any of the given strings,
+    /// `Error.MpackUnexpectedEnumName` is returned.
+    ///
+    /// The maximum string length is implied by the maximum length
+    /// of the enum name (strings are read without allocation).
+    ///
+    /// This zig function is the (nicer) counterpart to `mpack_expect_enum`.
+    /// The advantage here is we get to use compile-time reflection ;)
+    pub fn expect_enum(
+        self: *MpackReader,
+        comptime T: type,
+    ) EnumParseError!T {
+        const info = switch (@typeInfo(T)) {
+            .Enum => |e| e,
+            else => unreachable, // Must be enum
+        };
+        // should actually have some fields (or else we will always error)
+        assert(info.fields.len > 0);
+        comptime var max_field_len = 0;
+        inline for (info.fields) |field| {
+            max_field_len = @maximum(field.name.len, max_field_len);
+        }
+        // actually read the thing
+        const tag = try self.read_tag();
+        const len = try tag.str_length();
+        var raw_buffer: [max_field_len]u8 = undefined;
+        const buffer = readBuffer: {
+            var read_all_bytes = false;
+            errdefer {
+                if (!read_all_bytes) self.skip_bytes(len);
+                self.done_str() catch {};
+            }
+            if (len > max_field_len) {
+                // logically impossible for a match
+                return EnumParseError.MsgpackUnexpectedEnumName;
+            }
+            // we build an array on the stack with the maximum length of the enum.
+            //
+            // This is a compile time constant, but is only
+            // reasonable if the enum length isn't horribly long
+            assert(max_field_len <= 1024);
+            var buffer: []u8 = raw_buffer[0..len];
+            try self.read_bytes_into(buffer);
+            read_all_bytes = true;
+            break :readBuffer buffer;
+        };
+        try self.done_str();
+        return std.meta.stringToEnum(T, buffer) orelse EnumParseError.MsgpackUnexpectedEnumName;
+    }
 };
 pub const ReflectParseContext = struct {
     /// Require floating point types to be exact.
@@ -499,8 +560,16 @@ pub const Error = error{
     /// or some other file or socket error occurred.
     MsgpackErrorIO,
     /// While reading msgpack, an allocation failure occurred
+    ///
+    /// This indicates failure of the underlying library,
+    /// not zig allocation failrue (that is AllocError)
     MsgpackErrorMemory,
 } || TypeError || AllocError;
+
+/// An error that occurs parsing a msgpack type into a Zig enum.
+///
+/// TODO: Better name for this error?
+pub const EnumParseError = Error || error{MsgpackUnexpectedEnumName};
 
 pub const ErrorInfo = extern struct {
     err: c.mpack_error_t,
@@ -686,5 +755,53 @@ test "mpack strings" {
         };
         try std.testing.expectEqualStrings(actual_text, value.text);
         defer alloc.free(actual_text);
+    }
+}
+
+test "mpack reflect enum" {
+    const TestEnum = enum {
+        foo,
+        bar,
+        poopy,
+        poopy_pants,
+    };
+    const TestEnumValue = struct {
+        encoded: []const u8,
+        expected: TestEnum,
+    };
+    const TestEnumFail = struct { encoded: []const u8, expected: EnumParseError };
+    const test_values = [_]TestEnumValue{
+        .{ .encoded = "\xa3foo", .expected = .foo },
+        .{ .encoded = "\xa3bar", .expected = .bar },
+        .{ .encoded = "\xa5poopy", .expected = .poopy },
+        .{ .encoded = "\xabpoopy_pants", .expected = .poopy_pants },
+    };
+    for (test_values) |value| {
+        var reader = MpackReader.init_data(value.encoded);
+        defer reader.destroy() catch unreachable;
+        try std.testing.expectEqual(
+            try reader.expect_enum(TestEnum),
+            value.expected,
+        );
+    }
+    const test_error_valeus = [_]TestEnumFail{
+        // Too long
+        .{ .encoded = "\xbfDo you want to build a snowman?", .expected = EnumParseError.MsgpackUnexpectedEnumName },
+        // Insufficent length
+        .{ .encoded = "\xa2ab", .expected = EnumParseError.MsgpackUnexpectedEnumName },
+        // Zero length
+        .{ .encoded = "\xa0", .expected = EnumParseError.MsgpackUnexpectedEnumName },
+        // Correct length, no match
+        .{ .encoded = "\xa3baz", .expected = EnumParseError.MsgpackUnexpectedEnumName },
+        // wrong type
+        .{ .encoded = "\x11", .expected = EnumParseError.MsgpackErrorType },
+    };
+    for (test_error_valeus) |error_value| {
+        var reader = MpackReader.init_data(error_value.encoded);
+        defer reader.destroy() catch unreachable;
+        try std.testing.expectError(
+            error_value.expected,
+            reader.expect_enum(TestEnum),
+        );
     }
 }

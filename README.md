@@ -1,8 +1,8 @@
-zig-msgpack
-============
+zig-mpack
+=========
 Zig bindings to [ludocode/mpack](https://github.com/ludocode/mpack).
 
-The underlying library is excellent (and ~60K), we just add a nice Zig wrapper.
+The underlying library is excellent (and ~60K). We just add a nice Zig wrapper.
 
 The bindings pretty closely match the underlying C API, with a handful exceptions:
 

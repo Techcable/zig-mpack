@@ -303,6 +303,17 @@ pub const MpackReader = extern struct {
         return val;
     }
 
+    /// Reads the start of a binary blob, returning its size in bytes.
+    ///
+    /// The bytes follow and must be read separately.
+    /// done_bin() must be called once all bytes have been read.
+    ///
+    /// NUL bytes are allowed in the string, and no encoding checks are done.
+    pub fn expect_bin_start(self: *MpackReader) Error!u32 {
+        const val = c.mpack_expect_bin(&self.reader);
+        try self.error_info().check_okay();
+        return val;
+    }
     /// Reads a string, allocating it in the specified allocator.
     ///
     /// NULL bytes are allowed in the string,

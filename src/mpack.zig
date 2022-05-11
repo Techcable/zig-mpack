@@ -530,28 +530,28 @@ pub const MTag = extern struct {
     ///
     /// This includes only the length, not the values.
     pub inline fn make_array(count: u32) MTag {
-        return .{ .tag = c.mpack_tag_make_array(val) };
+        return .{ .tag = c.mpack_tag_make_array(count) };
     }
 
     /// Generates a map tag.
     ///
     /// This includes only the length, not the values.
     pub inline fn make_map(count: u32) MTag {
-        return .{ .tag = c.mpack_tag_make_map(val) };
+        return .{ .tag = c.mpack_tag_make_map(count) };
     }
 
     /// Generates a string tag.
     ///
     /// This includes only the length, not the values.
     pub inline fn make_str(count: u32) MTag {
-        return .{ .tag = c.mpack_tag_make_str(val) };
+        return .{ .tag = c.mpack_tag_make_str(count) };
     }
 
     /// Generates a bin tag.
     ///
     /// This includes only the length, not the values.
     pub inline fn make_bin(count: u32) MTag {
-        return .{ .tag = c.mpack_tag_make_bin(val) };
+        return .{ .tag = c.mpack_tag_make_bin(count) };
     }
 
     //

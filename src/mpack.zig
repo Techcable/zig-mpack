@@ -21,6 +21,20 @@ pub const MpackReader = extern struct {
         return .{ .err = c.mpack_reader_error(&self.reader) };
     }
 
+    /// Flags the specified reader to have the specified error info.
+    ///
+    /// This is useful in debug mode, where `destroy` would otherwise panic
+    /// if there is unfinished data.
+    ///
+    /// If the reader is already in an error state, this call is ignored.
+    ///
+    /// Do something like `errdefer { reader.flag_error(mpack.ErrorInfo.INVALID) }`
+    /// to avoid panics for unfinished data
+    pub fn flag_error(self: *MpackReader, info: ErrorInfo) void {
+        @setCold(true);
+        c.mpack_reader_flag_error(&self.reader, info.err);
+    }
+
     /// Parses the next MessagePack object header
     /// (an MPack tag) without advancing the reader.
     pub fn peek_tag(self: *MpackReader) Error!MTag {

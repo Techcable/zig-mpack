@@ -29,7 +29,7 @@ pub const MpackReader = extern struct {
             try self.error_info().check_okay();
         } else {
             // should have returned nil if error
-            assert(self.error_info().is_okay());
+            assert(self.error_info().is_ok());
         }
         return tag;
     }

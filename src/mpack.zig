@@ -665,9 +665,29 @@ pub const ErrorInfo = extern struct {
         };
     }
 
+    /// Convert a zig error code to the C-level error info
+    pub fn from_zig(err: Error) ErrorInfo {
+        const c_err: c.mpack_error_t = switch (err) {
+            Error.MsgpackErrorType => c.mpack_error_type,
+            // Convert 'other' errors to "invalid" error status
+            Error.MsgpackErrorInvalid, Error.MsgpackError => c.mpack_error_invalid,
+            // Convert zig alloc failure to mpack alloc error failure
+            Error.MsgpackErrorMemory, Error.OutOfMemory => c.mpack_error_memory,
+            Error.MsgpackErrorIO => c.mpack_error_io,
+        };
+        return ErrorInfo{ .err = c_err };
+    }
+
     pub fn to_string(self: ErrorInfo) [*:0]const u8 {
         return c.mpack_error_to_string(self.err);
     }
+
+    /// Indicates error info that is actually ok (no error at all)
+    pub const OK = ErrorInfo{ .err = c.mpack_ok };
+    /// An `ErrorInfo` corresponding to `Error.MsgpackERrorInvalid`
+    pub const INVALID = ErrorInfo{ .err = c.mpack_error_invalid };
+    /// An `ErrorInfo` corresponding to `Error.MsgpackErrorType`
+    pub const TYPE = ErrorInfo{ .err = c.mpack_error_type };
 };
 
 pub fn free(ptr: anytype) void {
@@ -881,4 +901,10 @@ test "mpack reflect enum" {
             reader.expect_enum(TestEnum),
         );
     }
+}
+
+test "error info" {
+    try std.testing.expect(ErrorInfo.OK.is_ok());
+    try std.testing.expectError(Error.MsgpackErrorInvalid, ErrorInfo.INVALID.check_okay());
+    try std.testing.expectError(Error.MsgpackErrorMemory, ErrorInfo.from_zig(std.mem.Allocator.Error.OutOfMemory).check_okay());
 }

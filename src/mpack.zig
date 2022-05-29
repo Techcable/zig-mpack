@@ -5,12 +5,18 @@ const Allocator = std.mem.Allocator;
 const AllocError = Allocator.Error;
 const mpack_options = @import("msgpack_options");
 
+// NOTE: If mpack_debug == false, this is completely unused...
+//
+// TODO: Explicitly optimize away in that case?
+threadlocal var ignore_mpack_breakpoints = false;
+
 fn mpack_assert_fail(cstr: [*:0]const u8) callconv(.C) void {
     @setCold(true);
     std.debug.panic("{s}", .{cstr});
 }
 fn mpack_breakpoint(cstr: [*:0]const u8) callconv(.C) void {
     @setCold(true);
+    if (ignore_mpack_breakpoints) return;
     std.debug.print("{s}\n", .{cstr});
     @breakpoint();
 }
@@ -125,13 +131,49 @@ pub const MpackReader = extern struct {
         try self.error_info().check_okay();
     }
 
-    /// Cleans up the MPack reader,
-    /// ensuring that all compound elements
-    /// have been completely read
+    /// Cleans up the reader, checking for any errors.
     ///
-    /// Returns the final error state of the
-    /// reader.
-    pub inline fn destroy(self: *MpackReader) Error!void {
+    /// If "read tracking" is enabled (in debug mode),
+    /// this will check that all compound elements
+    /// have been completely read.
+    ///
+    /// This intentionally checks for all errors,
+    /// but should never panic or trigger a breakpoint.
+    pub inline fn try_destroy(self: *MpackReader) Error!void {
+        // we want to suppress breakpoints because we're already
+        // being careful and checking for errors
+        //
+        // crashing the program with @breakpoint() is unhelpful
+        // if we're already handling errors
+        return self.destroy0(false);
+    }
+
+    /// Cleans up the reader, assuming that no errors have occured.
+    ///
+    /// 
+    /// If an unexpected error occurs (including with read tracking),
+    /// this will panic in debug mode.
+    ///
+    /// If "read tracking" is enabled (in debug mode),
+    /// this will check that all compound elements
+    /// have been completely read.
+    ///
+    /// To intentionally ignore errors (and never panic),
+    /// use `try_destroy() + catch {}`
+    pub inline fn destroy(self: *MpackReader) void {
+        // NOTE: in this case we want breakpoints, because that will
+        // give more helpful info than an `unreachable` panic
+        //
+        // in release mode, all of this is optimized out
+        self.destroy0(true) catch unreachable;
+    }
+
+    inline fn destroy0(self: *MpackReader, want_breakpoints: bool) Error!void {
+        const old_ignore = ignore_mpack_breakpoints;
+        ignore_mpack_breakpoints = !want_breakpoints;
+        defer {
+            ignore_mpack_breakpoints = old_ignore;
+        }
         var err = c.mpack_reader_destroy(&self.reader);
         try (ErrorInfo{ .err = err }).check_okay();
     }
@@ -682,6 +724,13 @@ pub const Error = error{
     /// This indicates failure of the underlying library,
     /// not zig allocation failrue (that is AllocError)
     MsgpackErrorMemory,
+    /// Indicates that an error occured from a bug in the program.
+    ///
+    /// Sometimes this behavior results in a panic.
+    ///
+    /// This is the type of error returned by the "write tracking",
+    /// if not enough elements are read
+    MsgpackErrorBug,
 } || TypeError || AllocError;
 
 /// An error that occurs parsing a msgpack type into a Zig enum.
@@ -702,6 +751,7 @@ pub const ErrorInfo = extern struct {
             c.mpack_error_type => Error.MsgpackErrorType,
             c.mpack_error_invalid => Error.MsgpackErrorInvalid,
             c.mpack_error_memory => Error.MsgpackErrorMemory,
+            c.mpack_error_bug => Error.MsgpackErrorBug,
             else => Error.MsgpackError,
         };
     }
@@ -715,6 +765,7 @@ pub const ErrorInfo = extern struct {
             // Convert zig alloc failure to mpack alloc error failure
             Error.MsgpackErrorMemory, Error.OutOfMemory => c.mpack_error_memory,
             Error.MsgpackErrorIO => c.mpack_error_io,
+            Error.MsgpackErrorBug => c.mpack_error_bug,
         };
         return ErrorInfo{ .err = c_err };
     }
@@ -858,7 +909,7 @@ test "mpack primitives" {
         const modes = [2]PrimitiveReadMode{ .reflect, .expect };
         for (modes) |mode| {
             var reader = MpackReader.init_data(value.bytes);
-            defer reader.destroy() catch unreachable;
+            defer reader.destroy();
             try expect_primitive(&reader, value.value, mode);
         }
     }
@@ -883,7 +934,7 @@ test "mpack strings" {
     const alloc = std.testing.allocator;
     for (test_strings) |value| {
         var reader = MpackReader.init_data(value.encoded);
-        defer reader.destroy() catch unreachable;
+        defer reader.destroy();
         var actual_text = blk: {
             if (value.utf8) {
                 break :blk try reader.expect_str_relaxed_alloc(alloc);
@@ -916,7 +967,7 @@ test "mpack reflect enum" {
     };
     for (test_values) |value| {
         var reader = MpackReader.init_data(value.encoded);
-        defer reader.destroy() catch unreachable;
+        defer reader.destroy();
         try std.testing.expectEqual(
             try reader.expect_enum(TestEnum),
             value.expected,
@@ -936,7 +987,7 @@ test "mpack reflect enum" {
     };
     for (test_error_valeus) |error_value| {
         var reader = MpackReader.init_data(error_value.encoded);
-        defer reader.destroy() catch unreachable;
+        defer reader.destroy();
         try std.testing.expectError(
             error_value.expected,
             reader.expect_enum(TestEnum),
@@ -948,4 +999,21 @@ test "error info" {
     try std.testing.expect(ErrorInfo.OK.is_ok());
     try std.testing.expectError(Error.MsgpackErrorInvalid, ErrorInfo.INVALID.check_okay());
     try std.testing.expectError(Error.MsgpackErrorMemory, ErrorInfo.from_zig(std.mem.Allocator.Error.OutOfMemory).check_okay());
+}
+
+test "destroy reader w/ incomplete data" {
+    var reader = MpackReader.init_data("\x93\x01\x02\x03");
+    _ = try reader.expect_array();
+    try std.testing.expectEqual(
+        try reader.expect_u8(),
+        1,
+    );
+    try std.testing.expectEqual(
+        try reader.expect_u8(),
+        2,
+    );
+    try std.testing.expectError(
+        Error.MsgpackErrorBug,
+        reader.try_destroy(),
+    );
 }

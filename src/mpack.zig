@@ -3,6 +3,33 @@ const c = @import("c.zig");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const AllocError = Allocator.Error;
+const mpack_options = @import("msgpack_options");
+
+fn mpack_assert_fail(cstr: [*:0]const u8) callconv(.C) void {
+    @setCold(true);
+    std.debug.panic("{s}", .{cstr});
+}
+fn mpack_breakpoint(cstr: [*:0]const u8) callconv(.C) void {
+    @setCold(true);
+    std.debug.print("{s}\n", .{cstr});
+    @breakpoint();
+}
+
+comptime {
+    if (mpack_options.mpack_debug) {
+        assert(c.MPACK_DEBUG != 0);
+        @export(mpack_assert_fail, .{
+            .name = "mpack_assert_fail",
+            .linkage = .Weak,
+            .visibility = .hidden,
+        });
+        @export(mpack_breakpoint, .{
+            .name = "mpack_break_hit",
+            .linkage = .Weak,
+            .visibility = .hidden,
+        });
+    }
+}
 
 pub const MpackReader = extern struct {
     reader: c.mpack_reader_t,

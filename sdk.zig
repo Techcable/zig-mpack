@@ -8,9 +8,9 @@ fn dep_root() []const u8 {
     return sdk_root() ++ "/deps/mpack";
 }
 
-pub const MpackOptions = struct {};
+pub const Options = struct {};
 
-pub fn setup_msgpack(step: *std.build.LibExeObjStep, _: MpackOptions) void {
+pub fn setup_msgpack(step: *std.build.LibExeObjStep, _: Options) void {
     step.addPackage(.{ .name = "mpack", .path = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" } });
     step.addIncludePath(dep_root() ++ "/src/mpack");
     // Compile mpack library

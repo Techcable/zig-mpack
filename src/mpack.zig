@@ -150,7 +150,7 @@ pub const MpackReader = extern struct {
 
     /// Cleans up the reader, assuming that no errors have occured.
     ///
-    /// 
+    ///
     /// If an unexpected error occurs (including with read tracking),
     /// this will panic in debug mode.
     ///
@@ -214,6 +214,16 @@ pub const MpackReader = extern struct {
     //
     // expect API
     //
+
+    /// Reads a MessagePack object header (an MPack tag),
+    /// expecting it to exactly match the given tag.
+    ///
+    /// If the type is compound, additional reads must be called
+    /// to get the underlying data.
+    pub inline fn expect_tag(self: *MpackReader, expected: MTag) Error!void {
+        c.mpack_expect_tag(&self.reader, expected.tag);
+        try self.error_info().check_okay();
+    }
 
     /// Reads an 8-bit unsigned integer.
     pub inline fn expect_u8(self: *MpackReader) Error!u8 {

@@ -124,7 +124,6 @@ const Flag = enum {
 };
 
 pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
-    step.addPackage(.{ .name = "mpack", .path = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" } });
     step.addIncludePath(dep_root() ++ "/src/mpack");
     // handle options
     var specified_modules = std.enums.EnumSet(Module).init(.{});
@@ -212,7 +211,7 @@ pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
     //
     // It appears zig already "hashes contents to file names", so we don't need
     // to worry about generating duplicates here (wow)
-    {
+    var optionsPkg = initOptions: {
         var options = step.builder.addOptions();
         options.addOption(bool, "mpack_debug", mpack_debug);
         options.addOption(bool, "use_c_stdlib", opts.link_c_stdlib);
@@ -220,10 +219,18 @@ pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
         options.addOption(bool, "enable_extensions", opts.extensions);
         options.addOption(bool, "read_tracking", read_tracking);
         options.addOption(bool, "write_tracking", write_tracking);
-        step.addOptions("msgpack_options", options);
-    }
+        break :initOptions options.getPackage("msgpack_options");
+    };
+    step.addPackage(optionsPkg);
     step.addCSourceFiles(
         module_source_paths.slice(),
         msgpack_cc_options.items,
     );
+    var deps = step.builder.allocator.alloc(std.build.Pkg, 1) catch unreachable;
+    deps[0] = optionsPkg;
+    step.addPackage(.{
+        .name = "mpack",
+        .path = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" },
+        .dependencies = deps,
+    });
 }

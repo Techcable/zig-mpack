@@ -230,7 +230,7 @@ pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
     deps[0] = optionsPkg;
     step.addPackage(.{
         .name = "mpack",
-        .path = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" },
+        .source = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" },
         .dependencies = deps,
     });
 }

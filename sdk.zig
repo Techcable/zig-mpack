@@ -124,6 +124,8 @@ const Flag = enum {
 };
 
 pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
+    var nativeLib = step.builder.addStaticLibrary("mpack", sdk_root() ++ "/src/mpack.zig");
+    nativeLib.addIncludePath(dep_root() ++ "/src/mpack");
     step.addIncludePath(dep_root() ++ "/src/mpack");
     // handle options
     var specified_modules = std.enums.EnumSet(Module).init(.{});
@@ -222,12 +224,14 @@ pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
         break :initOptions options.getPackage("msgpack_options");
     };
     step.addPackage(optionsPkg);
-    step.addCSourceFiles(
+    nativeLib.addPackage(optionsPkg);
+    nativeLib.addCSourceFiles(
         module_source_paths.slice(),
         msgpack_cc_options.items,
     );
     var deps = step.builder.allocator.alloc(std.build.Pkg, 1) catch unreachable;
     deps[0] = optionsPkg;
+    step.linkLibrary(nativeLib);
     step.addPackage(.{
         .name = "mpack",
         .source = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" },

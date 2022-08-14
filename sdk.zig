@@ -229,6 +229,9 @@ pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
         module_source_paths.slice(),
         msgpack_cc_options.items,
     );
+    if (opts.link_c_stdlib) {
+        nativeLib.linkLibC();
+    }
     var deps = step.builder.allocator.alloc(std.build.Pkg, 1) catch unreachable;
     deps[0] = optionsPkg;
     step.linkLibrary(nativeLib);

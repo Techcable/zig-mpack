@@ -6,7 +6,7 @@ fn sdk_root() []const u8 {
 }
 
 fn dep_root() []const u8 {
-    return sdk_root() ++ "/deps/mpack";
+    return comptime sdk_root() ++ "/deps/mpack";
 }
 
 /// A module of ludocode mpack (the underlying library).
@@ -124,9 +124,9 @@ const Flag = enum {
 };
 
 pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
-    var nativeLib = step.builder.addStaticLibrary("mpack", sdk_root() ++ "/src/mpack.zig");
-    nativeLib.addIncludePath(dep_root() ++ "/src/mpack");
-    step.addIncludePath(dep_root() ++ "/src/mpack");
+    var nativeLib = step.builder.addStaticLibrary("mpack", comptime sdk_root() ++ "/src/mpack.zig");
+    nativeLib.addIncludePath(comptime dep_root() ++ "/src/mpack");
+    step.addIncludePath(comptime dep_root() ++ "/src/mpack");
     // handle options
     var specified_modules = std.enums.EnumSet(Module).init(.{});
     for (opts.included_modules) |mod| {
@@ -237,7 +237,7 @@ pub fn setup_msgpack(step: *std.build.LibExeObjStep, opts: Options) void {
     step.linkLibrary(nativeLib);
     step.addPackage(.{
         .name = "mpack",
-        .source = std.build.FileSource{ .path = sdk_root() ++ "/src/mpack.zig" },
+        .source = std.build.FileSource{ .path = comptime sdk_root() ++ "/src/mpack.zig" },
         .dependencies = deps,
     });
 }

@@ -516,7 +516,7 @@ pub const MpackReader = extern struct {
         assert(info.fields.len > 0);
         comptime var max_field_len = 0;
         inline for (info.fields) |field| {
-            max_field_len = @maximum(field.name.len, max_field_len);
+            max_field_len = @max(field.name.len, max_field_len);
         }
         // actually read the thing
         const tag = try self.read_tag();
